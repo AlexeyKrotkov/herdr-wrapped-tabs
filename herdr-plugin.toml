@@ -1,0 +1,49 @@
+id = "local.wrapped-tabs"
+name = "Wrapped Tabs"
+version = "0.1.0"
+min_herdr_version = "0.7.5"
+description = "Always-visible wrapped tab list below the native tab bar"
+platforms = ["macos", "linux"]
+
+[[actions]]
+id = "enable"
+title = "Show wrapped tabs in this workspace"
+contexts = ["workspace", "tab", "pane"]
+command = ["python3", "wrapped_tabs.py", "enable"]
+
+[[actions]]
+id = "disable"
+title = "Remove wrapped tabs from this workspace"
+contexts = ["workspace", "tab", "pane"]
+command = ["python3", "wrapped_tabs.py", "disable"]
+
+[[actions]]
+id = "refresh"
+title = "Restore wrapped tabs in all workspaces"
+command = ["python3", "wrapped_tabs.py", "refresh"]
+
+[[actions]]
+id = "remove-all"
+title = "Remove wrapped tabs from every workspace"
+command = ["python3", "wrapped_tabs.py", "remove-all"]
+
+[[startup]]
+command = ["python3", "wrapped_tabs.py", "sync"]
+
+[[events]]
+on = "tab.created"
+command = ["python3", "wrapped_tabs.py", "sync"]
+
+[[events]]
+on = "tab.moved"
+command = ["python3", "wrapped_tabs.py", "sync"]
+
+[[events]]
+on = "workspace.created"
+command = ["python3", "wrapped_tabs.py", "sync"]
+
+[[panes]]
+id = "bar"
+title = "Wrapped tabs"
+placement = "split"
+command = ["python3", "wrapped_tabs.py", "view"]
