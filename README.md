@@ -8,6 +8,11 @@ Requires Herdr 0.7.5 or newer and Python 3 with `curses` (macOS or Linux).
 
 ```sh
 herdr plugin install AlexeyKrotkov/herdr-wrapped-tabs
+```
+
+The list appears automatically on the next Herdr server start. To show it immediately in existing tabs of a running session, run:
+
+```sh
 herdr plugin action invoke local.wrapped-tabs.refresh
 ```
 
