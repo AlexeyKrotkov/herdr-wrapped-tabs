@@ -133,7 +133,7 @@ def open_bar(tab_id, target_pane_id, workspace_tabs, layout):
         "direction": "down",
         "focus": False,
     })
-    pane = response.get("pane", {})
+    pane = response.get("pane") or response.get("plugin_pane", {}).get("pane", {})
     pane_id = pane.get("pane_id") or response.get("pane_id")
     if not pane_id:
         updated = snapshot()
@@ -222,9 +222,11 @@ def is_restored_bar(pane):
     pane_cwd = pane.get("cwd")
     if pane.get("label") != BAR_TITLE or not pane_cwd:
         return False
-    cwd = pathlib.Path(pane_cwd)
+    cwd = pathlib.Path(pane_cwd).resolve()
+    # ponytail: recognize a restored shell at $HOME by its reserved label; use a stable plugin-pane ID when Herdr exposes one.
     return (
-        cwd.resolve() == PLUGIN_ROOT
+        cwd == PLUGIN_ROOT.resolve()
+        or cwd == pathlib.Path.home().resolve()
         or cwd.parent == PLUGIN_ROOT.parent and cwd.name.startswith(f"{PLUGIN_ID}-")
     )
 
@@ -253,7 +255,7 @@ def restore():
             target = next(item["pane_id"] for item in layout["panes"] if item["pane_id"] != restored_bar["pane_id"])
             workspace_tabs = [item for item in current["tabs"] if item["workspace_id"] == tab["workspace_id"]]
             pane_id = open_bar(tab_id, target, workspace_tabs, layout)
-            request("plugin.pane.close", {"pane_id": restored_bar["pane_id"]})
+            request("pane.close", {"pane_id": restored_bar["pane_id"]})
             state["panes"][tab_id] = pane_id
             write_state(state)
         sync_locked(state)
