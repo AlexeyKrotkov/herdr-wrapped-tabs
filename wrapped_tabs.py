@@ -80,14 +80,16 @@ def clean_label(value):
     return "".join(char if char.isprintable() and char not in "\r\n\t" else " " for char in value).strip()
 
 
-def tab_cells(tabs, width):
+def tab_cells(tabs, width, unread_tabs=()):
     width = max(width, 4)
     cells = []
     for tab in tabs:
-        label = f"{tab['number']} {clean_label(tab['label'])}"
+        label = f"{'● ' if tab['tab_id'] in unread_tabs else ''}{tab['number']} {clean_label(tab['label'])}"
         while cell_width(label) > width - 2 and len(label) > 1:
             label = label[:-1]
-        cells.append((tab["tab_id"], f" {label} "))
+        text = f" {label} "
+        marker_offset = text.find("●")
+        cells.append((tab["tab_id"], text, marker_offset if marker_offset >= 0 else None))
     return cells
 
 
@@ -95,12 +97,12 @@ def place_cells(cells, width):
     positions = []
     row = 0
     column = 0
-    for tab_id, label in cells:
+    for tab_id, label, marker_offset in cells:
         length = cell_width(label)
         if column and column + length > width:
             row += 1
             column = 0
-        positions.append((tab_id, label, row, column, length))
+        positions.append((tab_id, label, row, column, length, marker_offset))
         column += length + 1
     return positions
 
@@ -284,10 +286,10 @@ def remove_all():
     print("Wrapped tabs removed from all workspaces")
 
 
-def draw(screen, positions, selected_tab_id, hovered_tab_id, scroll_offset, total_rows):
+def draw(screen, positions, selected_tab_id, hovered_tab_id, scroll_offset, total_rows, notification_style):
     screen.erase()
     height, width = screen.getmaxyx()
-    for tab_id, label, row, column, _length in positions:
+    for tab_id, label, row, column, _length, marker_offset in positions:
         visible_row = row - scroll_offset
         if visible_row < 0 or visible_row >= height or column >= width:
             continue
@@ -299,6 +301,8 @@ def draw(screen, positions, selected_tab_id, hovered_tab_id, scroll_offset, tota
             style = curses.A_DIM
         try:
             screen.addnstr(visible_row, column, label, width - column, style)
+            if marker_offset is not None:
+                screen.addstr(visible_row, column + marker_offset, "●", notification_style | (style & curses.A_REVERSE))
         except curses.error:
             pass
     if width > 1 and scroll_offset > 0:
@@ -345,6 +349,15 @@ def parse_input(buffer):
 
 def view(screen):
     curses.curs_set(0)
+    notification_style = curses.A_BOLD
+    try:
+        if curses.has_colors():
+            curses.start_color()
+            curses.use_default_colors()
+            curses.init_pair(1, curses.COLOR_RED, -1)
+            notification_style |= curses.color_pair(1)
+    except curses.error:
+        pass
     sys.stdout.write("\x1b[?1003h\x1b[?1006h")
     sys.stdout.flush()
     input_fd = sys.stdin.fileno()
@@ -356,6 +369,7 @@ def view(screen):
     scroll_offset = 0
     input_buffer = b""
     tabs = []
+    unread_tabs = set()
     positions = []
     total_rows = 0
     last_render = None
@@ -372,7 +386,15 @@ def view(screen):
             try:
                 tabs = request("tab.list", {"workspace_id": workspace_id})["tabs"]
                 tabs.sort(key=lambda tab: tab["number"])
-                positions = place_cells(tab_cells(tabs, width), width)
+                tab_ids = {tab["tab_id"] for tab in tabs}
+                unread_tabs.intersection_update(tab_ids)
+                # ponytail: 1s polling can miss agent runs shorter than one refresh; use activity events if Herdr exposes them.
+                for tab in tabs:
+                    if tab.get("focused"):
+                        unread_tabs.discard(tab["tab_id"])
+                    elif tab.get("agent_status") == "working":
+                        unread_tabs.add(tab["tab_id"])
+                positions = place_cells(tab_cells(tabs, width, unread_tabs), width)
                 total_rows = max((position[2] for position in positions), default=0) + 1
                 scroll_offset = min(scroll_offset, max(total_rows - height, 0))
                 chosen = chosen if any(tab["tab_id"] == chosen for tab in tabs) else tab_id
@@ -382,9 +404,9 @@ def view(screen):
                 positions = []
                 total_rows = 0
             next_refresh = now + 1
-        render_key = (height, width, tuple((tab["tab_id"], tab["label"], tab["number"]) for tab in tabs), chosen, hovered, scroll_offset)
+        render_key = (height, width, tuple((tab["tab_id"], tab["label"], tab["number"], tab.get("agent_status"), tab.get("focused")) for tab in tabs), tuple(sorted(unread_tabs)), chosen, hovered, scroll_offset)
         if render_key != last_render:
-            draw(screen, positions, chosen, hovered, scroll_offset, total_rows)
+            draw(screen, positions, chosen, hovered, scroll_offset, total_rows, notification_style)
             last_render = render_key
         ready, _, _ = select.select([input_fd], [], [], max(next_refresh - time.monotonic(), 0))
         if not ready:
