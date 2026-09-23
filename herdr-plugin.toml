@@ -28,7 +28,7 @@ title = "Remove wrapped tabs from every workspace"
 command = ["python3", "wrapped_tabs.py", "remove-all"]
 
 [[startup]]
-command = ["python3", "wrapped_tabs.py", "sync"]
+command = ["python3", "wrapped_tabs.py", "restore"]
 
 [[events]]
 on = "tab.created"

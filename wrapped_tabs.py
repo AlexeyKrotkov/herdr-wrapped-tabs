@@ -15,6 +15,8 @@ import unicodedata
 
 
 PLUGIN_ID = "local.wrapped-tabs"
+BAR_TITLE = "Wrapped tabs"
+PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent
 STATE_DIR = pathlib.Path(os.environ.get("HERDR_PLUGIN_STATE_DIR", pathlib.Path.home() / ".config/herdr/plugins/state/local.wrapped-tabs"))
 STATE_FILE = STATE_DIR / "workspaces.json"
 LOCK_FILE = STATE_DIR / "workspaces.lock"
@@ -122,6 +124,30 @@ def resize_bar(pane_id, tab_id, required_rows):
         request("layout.set_split_ratio", {"tab_id": tab_id, "path": [], "ratio": desired / height})
 
 
+def open_bar(tab_id, target_pane_id, workspace_tabs, layout):
+    response = request("plugin.pane.open", {
+        "plugin_id": PLUGIN_ID,
+        "entrypoint": "bar",
+        "placement": "split",
+        "target_pane_id": target_pane_id,
+        "direction": "down",
+        "focus": False,
+    })
+    pane = response.get("pane", {})
+    pane_id = pane.get("pane_id") or response.get("pane_id")
+    if not pane_id:
+        updated = snapshot()
+        added = [item["pane_id"] for item in updated["panes"] if item["tab_id"] == tab_id and item["pane_id"] != target_pane_id]
+        if len(added) != 1:
+            raise RuntimeError(f"Cannot identify new bar pane in {tab_id}: {response}")
+        pane_id = added[0]
+    request("pane.swap", {"source_pane_id": pane_id, "target_pane_id": target_pane_id})
+    width = max(layout["area"]["width"] - 2, 4)
+    positions = place_cells(tab_cells(workspace_tabs, width), width)
+    resize_bar(pane_id, tab_id, max((position[2] for position in positions), default=0) + 1)
+    return pane_id
+
+
 def sync_locked(state):
     current = snapshot()
     original_tab_id = current["focused_tab_id"]
@@ -141,29 +167,10 @@ def sync_locked(state):
         if not layout or len(layout["panes"]) != 1 or layout.get("zoomed"):
             continue
         target = layout["panes"][0]["pane_id"]
-        response = request("plugin.pane.open", {
-            "plugin_id": PLUGIN_ID,
-            "entrypoint": "bar",
-            "placement": "split",
-            "target_pane_id": target,
-            "direction": "down",
-            "focus": False,
-        })
-        pane = response.get("pane", {})
-        pane_id = pane.get("pane_id") or response.get("pane_id")
-        if not pane_id:
-            updated = snapshot()
-            added = [item["pane_id"] for item in updated["panes"] if item["tab_id"] == tab_id and item["pane_id"] != target]
-            if len(added) != 1:
-                raise RuntimeError(f"Cannot identify new bar pane in {tab_id}: {response}")
-            pane_id = added[0]
+        workspace_tabs = [item for item in current["tabs"] if item["workspace_id"] == tab["workspace_id"]]
+        pane_id = open_bar(tab_id, target, workspace_tabs, layout)
         state["panes"][tab_id] = pane_id
         write_state(state)
-        request("pane.swap", {"source_pane_id": pane_id, "target_pane_id": target})
-        workspace_tabs = [item for item in current["tabs"] if item["workspace_id"] == tab["workspace_id"]]
-        width = max(layout["area"]["width"] - 2, 4)
-        positions = place_cells(tab_cells(workspace_tabs, width), width)
-        resize_bar(pane_id, tab_id, max((position[2] for position in positions), default=0) + 1)
         request("pane.focus_direction", {"pane_id": pane_id, "direction": "down"})
     write_state(state)
     if original_tab_id and original_tab_id in tabs:
@@ -209,6 +216,47 @@ def disable():
 def sync():
     with lock_state():
         sync_locked(read_state())
+
+
+def is_restored_bar(pane):
+    pane_cwd = pane.get("cwd")
+    if pane.get("label") != BAR_TITLE or not pane_cwd:
+        return False
+    cwd = pathlib.Path(pane_cwd)
+    return (
+        cwd.resolve() == PLUGIN_ROOT
+        or cwd.parent == PLUGIN_ROOT.parent and cwd.name.startswith(f"{PLUGIN_ID}-")
+    )
+
+
+def restore():
+    with lock_state():
+        state = read_state()
+        if state["suspended"]:
+            return
+        current = snapshot()
+        layouts = {layout["tab_id"]: layout for layout in current["layouts"]}
+        tabs = {tab["tab_id"]: tab for tab in current["tabs"]}
+        panes = {pane["pane_id"]: pane for pane in current["panes"]}
+        for tab_id, layout in layouts.items():
+            tab = tabs.get(tab_id)
+            if not tab or tab["workspace_id"] in state["disabled"] or layout.get("zoomed") or len(layout["panes"]) != 2:
+                continue
+            layout_pane_ids = {item["pane_id"] for item in layout["panes"]}
+            restored_bars = [
+                panes[pane_id] for pane_id in layout_pane_ids if pane_id in panes
+                and is_restored_bar(panes[pane_id])
+            ]
+            if len(restored_bars) != 1:
+                continue
+            restored_bar = restored_bars[0]
+            target = next(item["pane_id"] for item in layout["panes"] if item["pane_id"] != restored_bar["pane_id"])
+            workspace_tabs = [item for item in current["tabs"] if item["workspace_id"] == tab["workspace_id"]]
+            pane_id = open_bar(tab_id, target, workspace_tabs, layout)
+            request("plugin.pane.close", {"pane_id": restored_bar["pane_id"]})
+            state["panes"][tab_id] = pane_id
+            write_state(state)
+        sync_locked(state)
 
 
 def refresh():
@@ -389,7 +437,7 @@ def main():
             sys.stdout.write("\x1b[?1003l\x1b[?1006l")
             sys.stdout.flush()
     else:
-        {"enable": enable, "disable": disable, "sync": sync, "refresh": refresh, "remove-all": remove_all}[action]()
+        {"enable": enable, "disable": disable, "sync": sync, "restore": restore, "refresh": refresh, "remove-all": remove_all}[action]()
 
 
 if __name__ == "__main__":
