@@ -17,7 +17,7 @@ import unicodedata
 PLUGIN_ID = "local.wrapped-tabs"
 BAR_TITLE = "Wrapped tabs"
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent
-STATE_DIR = pathlib.Path(os.environ.get("HERDR_PLUGIN_STATE_DIR", pathlib.Path.home() / ".config/herdr/plugins/state/local.wrapped-tabs"))
+STATE_DIR = pathlib.Path(os.environ.get("HERDR_PLUGIN_STATE_DIR", pathlib.Path(os.environ.get("XDG_STATE_HOME", pathlib.Path.home() / ".local/state")) / "herdr/plugins" / PLUGIN_ID))
 STATE_FILE = STATE_DIR / "workspaces.json"
 LOCK_FILE = STATE_DIR / "workspaces.lock"
 SOCKET_PATH = os.environ.get("HERDR_SOCKET_PATH", str(pathlib.Path.home() / ".config/herdr/herdr.sock"))
