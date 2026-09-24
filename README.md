@@ -20,6 +20,7 @@ herdr plugin action invoke local.wrapped-tabs.refresh
 
 - Click a tab to open it. Hover to underline it.
 - Focus the list pane and use Left/Right or `h`/`l` to select a tab, then Enter to open it.
+- The active Herdr tab stays highlighted, and working tabs keep their red dot while selected.
 - Scroll with the mouse wheel, Up/Down, `j`/`k`, or Page Up/Page Down when needed.
 
 The list wraps to as many rows as it needs, up to half the tab area's height. Longer lists scroll inside the pane. Herdr currently gives split panes at least 10% of the available height, so short lists may leave empty space. The native tab bar stays visible.

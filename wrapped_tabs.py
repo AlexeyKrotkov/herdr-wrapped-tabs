@@ -302,7 +302,7 @@ def draw(screen, positions, selected_tab_id, hovered_tab_id, scroll_offset, tota
         try:
             screen.addnstr(visible_row, column, label, width - column, style)
             if marker_offset is not None:
-                screen.addstr(visible_row, column + marker_offset, "●", notification_style | (style & curses.A_REVERSE))
+                screen.addstr(visible_row, column + marker_offset, "●", notification_style)
         except curses.error:
             pass
     if width > 1 and scroll_offset > 0:
@@ -365,6 +365,7 @@ def view(screen):
     tab_id = os.environ["HERDR_TAB_ID"]
     pane_id = os.environ["HERDR_PANE_ID"]
     chosen = tab_id
+    focused_tab_id = None
     hovered = None
     scroll_offset = 0
     input_buffer = b""
@@ -390,10 +391,14 @@ def view(screen):
                 unread_tabs.intersection_update(tab_ids)
                 # ponytail: 1s polling can miss agent runs shorter than one refresh; use activity events if Herdr exposes them.
                 for tab in tabs:
-                    if tab.get("focused"):
-                        unread_tabs.discard(tab["tab_id"])
-                    elif tab.get("agent_status") == "working":
+                    if tab.get("agent_status") == "working":
                         unread_tabs.add(tab["tab_id"])
+                    elif tab.get("focused"):
+                        unread_tabs.discard(tab["tab_id"])
+                active_tab_id = next((tab["tab_id"] for tab in tabs if tab.get("focused")), None)
+                if active_tab_id and active_tab_id != focused_tab_id:
+                    chosen = active_tab_id
+                focused_tab_id = active_tab_id
                 positions = place_cells(tab_cells(tabs, width, unread_tabs), width)
                 total_rows = max((position[2] for position in positions), default=0) + 1
                 scroll_offset = min(scroll_offset, max(total_rows - height, 0))
